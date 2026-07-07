@@ -26,6 +26,9 @@ pub struct Config {
     pub output_json: PathBuf,
     pub output_txt: PathBuf,
     pub output_csv: PathBuf,
+    pub output_unknown_txt: PathBuf,
+    pub output_unknown_json: PathBuf,
+    pub output_unknown_csv: PathBuf,
     pub threads: usize,
 }
 
@@ -50,6 +53,9 @@ impl Config {
             output_json: output_dir.join("mtga_collection.json"),
             output_txt: output_dir.join("mtga_collection.txt"),
             output_csv: output_dir.join("mtga_collection.csv"),
+            output_unknown_txt: output_dir.join("mtga_collection_unknown.txt"),
+            output_unknown_json: output_dir.join("mtga_collection_unknown.json"),
+            output_unknown_csv: output_dir.join("mtga_collection_unknown.csv"),
         }
     }
 }

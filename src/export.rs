@@ -12,11 +12,18 @@ pub struct CollectionEntry {
     pub cn: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct UnknownEntry {
+    pub arena_id: u32,
+    pub count: u32,
+}
+
 pub fn extract_collection(
     raw: &HashMap<u32, u32>,
     db: &Lookup,
-) -> Vec<CollectionEntry> {
+) -> (Vec<CollectionEntry>, Vec<UnknownEntry>) {
     let mut merged: HashMap<(String, String), CollectionEntry> = HashMap::new();
+    let mut unknown: HashMap<u32, u32> = HashMap::new();
 
     for (cid, qty) in raw {
         if let Some(info) = db.get(cid) {
@@ -28,12 +35,21 @@ pub fn extract_collection(
                 cn: info.collector_number.clone(),
             });
             entry.count += qty;
+        } else {
+            *unknown.entry(*cid).or_insert(0) += qty;
         }
     }
 
     let mut list: Vec<CollectionEntry> = merged.into_values().collect();
     list.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.set.cmp(&b.set)));
-    list
+
+    let mut unknown_list: Vec<UnknownEntry> = unknown
+        .into_iter()
+        .map(|(arena_id, count)| UnknownEntry { arena_id, count })
+        .collect();
+    unknown_list.sort_by_key(|e| e.arena_id);
+
+    (list, unknown_list)
 }
 
 fn ensure_parent(path: &Path) {
@@ -91,13 +107,55 @@ pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
     let _ = wtr.flush();
 }
 
+pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
+    ensure_parent(path);
+    let mut output = String::new();
+    for e in entries {
+        output.push_str(&format!("{} arena_id:{}\n", e.count, e.arena_id));
+    }
+    let _ = std::fs::write(path, output);
+}
+
+pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
+    ensure_parent(path);
+    let data: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "count": e.count,
+                "arena_id": e.arena_id,
+            })
+        })
+        .collect();
+    if let Ok(f) = std::fs::File::create(path) {
+        let _ = serde_json::to_writer_pretty(f, &data);
+    }
+}
+
+pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
+    ensure_parent(path);
+    let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
+    let _ = wtr.write_record(&["Count", "ArenaID"]);
+    for e in entries {
+        let _ = wtr.write_record(&[e.count.to_string(), e.arena_id.to_string()]);
+    }
+    let _ = wtr.flush();
+}
+
 pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
-    let entries = extract_collection(raw, db);
+    let (entries, unknown) = extract_collection(raw, db);
     println!("\n[Success] Found {} unique entries.", entries.len());
 
     export_txt(&cfg.output_txt, &entries);
     export_json(&cfg.output_json, &entries);
     export_csv(&cfg.output_csv, &entries);
+
+    if !unknown.is_empty() {
+        println!("[Warn] {} cards not found in database (unknown).", unknown.len());
+        export_unknown_txt(&cfg.output_unknown_txt, &unknown);
+        export_unknown_json(&cfg.output_unknown_json, &unknown);
+        export_unknown_csv(&cfg.output_unknown_csv, &unknown);
+    }
 
     println!("\nExport complete!");
     println!("Files saved to: {}", cfg.output_dir.display());

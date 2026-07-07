@@ -31,7 +31,7 @@ fn main() {
     let mem_source = match memory::MemorySource::from_process() {
         Some(m) => m,
         None => {
-            println!("MTG Arena not running. Open game and 'Decks' tab first.");
+            println!("MTG Arena not running. Open game and 'Collections' tab first.");
             wait_exit();
             return;
         }

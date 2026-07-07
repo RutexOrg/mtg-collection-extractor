@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "MTGA Collection Exporter", version = "2.0", about = "Export MTGA card collection")]
+#[command(name = "MTGA Collection Extractor", version = "2.0", about = "Export MTGA card collection")]
 pub struct Cli {
     #[arg(long, default_value = "1048576", help = "Bytes to read before anchor address")]
     pub offset_back: usize,

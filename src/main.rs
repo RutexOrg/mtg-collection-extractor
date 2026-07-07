@@ -8,7 +8,7 @@ use std::io::{self, Write};
 use indicatif::{ProgressBar, ProgressStyle};
 
 fn main() {
-    println!("MTGA Collection Exporter");
+    println!("MTGA Collection Extractor");
 
     let cfg = config::Config::from_cli();
     println!("Output Folder: {}\n", cfg.output_dir.display());

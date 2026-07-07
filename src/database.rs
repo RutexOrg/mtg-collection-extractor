@@ -207,7 +207,7 @@ fn fetch_scryfall_database() -> Lookup {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("MTGA-Collection-Exporter/2.0"),
+        reqwest::header::HeaderValue::from_static("MTGA-Collection-Extractor/2.0"),
     );
 
     let client = match reqwest::blocking::Client::builder()

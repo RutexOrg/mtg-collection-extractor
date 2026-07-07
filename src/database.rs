@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::Path;
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -15,11 +16,20 @@ pub struct CardInfo {
 
 pub type Lookup = HashMap<u32, CardInfo>;
 
-fn find_local_mtga_path() -> Option<std::path::PathBuf> {
+fn find_local_mtga_path(custom: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    if let Some(c) = custom {
+        let raw = c.join("MTGA_Data").join("Downloads").join("Raw");
+        if raw.exists() {
+            return Some(raw);
+        }
+    }
+
     let paths = [
-        r"C:\Program Files (x86)\Steam\steamapps\common\MTGA\MTGA_Data\Downloads\Raw",
-        r"C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
-        r"C:\Program Files (x86)\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
+        r"C:\Games\",
+        
+        // r"C:\Program Files (x86)\Steam\steamapps\common\MTGA\MTGA_Data\Downloads\Raw",
+        // r"C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
+        // r"C:\Program Files (x86)\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
     ];
     for p in &paths {
         let path = std::path::Path::new(p);
@@ -30,8 +40,8 @@ fn find_local_mtga_path() -> Option<std::path::PathBuf> {
     None
 }
 
-fn load_local_mtga_database() -> Lookup {
-    let raw_path = match find_local_mtga_path() {
+fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
+    let raw_path = match find_local_mtga_path(mtga_path) {
         Some(p) => p,
         None => {
             println!("Local MTGA installation not found.");
@@ -105,28 +115,25 @@ fn load_local_mtga_database() -> Lookup {
             }
         };
 
-        if !tables.contains(&"Cards".to_string()) || !tables.contains(&"Localizations".to_string()) {
+        if !tables.contains(&"Cards".to_string()) {
+            pb.inc(1);
+            continue;
+        }
+
+        let has_new_loc = tables.contains(&"Localizations_enUS".to_string());
+        let has_old_loc = tables.contains(&"Localizations".to_string());
+        if !has_new_loc && !has_old_loc {
             pb.inc(1);
             continue;
         }
 
         let mut loc_map: HashMap<i64, String> = HashMap::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let text: String = row.get(1)?;
-                Ok((id, text))
-            }) {
-                for r in rows.flatten() {
-                    loc_map.insert(r.0, r.1);
-                }
-            }
-        }
 
-        if loc_map.is_empty() {
-            if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
+        // New schema: Localizations_enUS (LocId, Formatted, Loc)
+        if has_new_loc {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
+            ) {
                 if let Ok(rows) = stmt.query_map([], |row| {
                     let id: i64 = row.get(0)?;
                     let text: String = row.get(1)?;
@@ -134,6 +141,36 @@ fn load_local_mtga_database() -> Lookup {
                 }) {
                     for r in rows.flatten() {
                         loc_map.insert(r.0, r.1);
+                    }
+                }
+            }
+        }
+
+        // Old schema fallback: Localizations (Id, Text)
+        if loc_map.is_empty() && has_old_loc {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
+            ) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    let id: i64 = row.get(0)?;
+                    let text: String = row.get(1)?;
+                    Ok((id, text))
+                }) {
+                    for r in rows.flatten() {
+                        loc_map.insert(r.0, r.1);
+                    }
+                }
+            }
+            if loc_map.is_empty() {
+                if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
+                    if let Ok(rows) = stmt.query_map([], |row| {
+                        let id: i64 = row.get(0)?;
+                        let text: String = row.get(1)?;
+                        Ok((id, text))
+                    }) {
+                        for r in rows.flatten() {
+                            loc_map.insert(r.0, r.1);
+                        }
                     }
                 }
             }
@@ -322,7 +359,52 @@ fn fetch_scryfall_database() -> Lookup {
     lookup
 }
 
-pub fn load_card_database(lookup_path: &Path) -> Lookup {
+fn prompt(msg: &str) -> String {
+    print!("{}", msg);
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok();
+    input.trim().to_string()
+}
+
+fn saved_mtga_path_file(lookup_path: &Path) -> std::path::PathBuf {
+    lookup_path.parent().unwrap_or(Path::new("data")).join("mtga_path.txt")
+}
+
+fn load_saved_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
+    let path = saved_mtga_path_file(lookup_path);
+    let content = std::fs::read_to_string(path).ok()?;
+    let trimmed = content.trim().to_string();
+    if trimmed.is_empty() { None } else { Some(std::path::PathBuf::from(trimmed)) }
+}
+
+fn save_mtga_path(lookup_path: &Path, raw_path: &Path) {
+    if let Some(parent) = lookup_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(saved_mtga_path_file(lookup_path), raw_path.to_string_lossy().as_ref());
+}
+
+fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
+    println!("\nMTGA installation not found at default locations.");
+    println!("  Enter the path to your MTGA folder (e.g. D:/Games/MTGA)");
+    let input = prompt("  Path (or press Enter to download from Scryfall): ");
+    if input.is_empty() {
+        return None;
+    }
+    let p = std::path::PathBuf::from(&input);
+    let raw = p.join("MTGA_Data").join("Downloads").join("Raw");
+    if raw.exists() {
+        save_mtga_path(lookup_path, &p);
+        Some(p)
+    } else {
+        println!("  Path not found: {}", raw.display());
+        println!("  Make sure the game files are downloaded.");
+        None
+    }
+}
+
+pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Lookup {
     if lookup_path.exists() {
         println!("Loading cached database...");
         match std::fs::File::open(lookup_path) {
@@ -351,7 +433,21 @@ pub fn load_card_database(lookup_path: &Path) -> Lookup {
         }
     }
 
-    let mut lookup = load_local_mtga_database();
+    let mut lookup = load_local_mtga_database(mtga_path);
+
+    if lookup.is_empty() && mtga_path.is_none() {
+        // Try saved path from previous interactive session
+        if let Some(saved) = load_saved_mtga_path(lookup_path) {
+            lookup = load_local_mtga_database(Some(&saved));
+        }
+    }
+
+    if lookup.is_empty() && mtga_path.is_none() {
+        // Interactive prompt
+        if let Some(root) = prompt_mtga_path(lookup_path) {
+            lookup = load_local_mtga_database(Some(&root));
+        }
+    }
 
     if lookup.is_empty() {
         println!("\n[Warn] Local database not found. Downloading from Scryfall...");
@@ -372,6 +468,130 @@ pub fn load_card_database(lookup_path: &Path) -> Lookup {
     }
 
     lookup
+}
+
+pub fn load_local_name_fallback(mtga_path: Option<&std::path::Path>) -> HashMap<u32, String> {
+    let raw_path = match find_local_mtga_path(mtga_path) {
+        Some(p) => p,
+        None => return HashMap::new(),
+    };
+
+    let mut entries: Vec<_> = match std::fs::read_dir(&raw_path) {
+        Ok(d) => d.filter_map(|e| e.ok()).collect(),
+        Err(_) => return HashMap::new(),
+    };
+    entries.sort_by_key(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
+    entries.reverse();
+
+    let mut fallback = HashMap::new();
+
+    for entry in &entries {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("mtga") {
+            continue;
+        }
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() < 500 * 1024 {
+                continue;
+            }
+        }
+
+        let conn = match rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let tables: Vec<String> = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
+            Ok(mut stmt) => stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .ok()
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                .unwrap_or_default(),
+            Err(_) => continue,
+        };
+
+        if !tables.contains(&"Cards".to_string()) {
+            continue;
+        }
+
+        let has_new_loc = tables.contains(&"Localizations_enUS".to_string());
+        let has_old_loc = tables.contains(&"Localizations".to_string());
+        if !has_new_loc && !has_old_loc {
+            continue;
+        }
+
+        let mut loc_map: HashMap<i64, String> = HashMap::new();
+
+        // New schema: Localizations_enUS (LocId, Formatted, Loc)
+        if has_new_loc {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
+            ) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    let id: i64 = row.get(0)?;
+                    let text: String = row.get(1)?;
+                    Ok((id, text))
+                }) {
+                    for r in rows.flatten() {
+                        loc_map.insert(r.0, r.1);
+                    }
+                }
+            }
+        }
+
+        // Old schema fallback: Localizations (Id, Text)
+        if loc_map.is_empty() && has_old_loc {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
+            ) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    let id: i64 = row.get(0)?;
+                    let text: String = row.get(1)?;
+                    Ok((id, text))
+                }) {
+                    for r in rows.flatten() {
+                        loc_map.insert(r.0, r.1);
+                    }
+                }
+            }
+            if loc_map.is_empty() {
+                if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
+                    if let Ok(rows) = stmt.query_map([], |row| {
+                        let id: i64 = row.get(0)?;
+                        let text: String = row.get(1)?;
+                        Ok((id, text))
+                    }) {
+                        for r in rows.flatten() {
+                            loc_map.insert(r.0, r.1);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(mut stmt) = conn.prepare("SELECT GrpId, TitleId FROM Cards") {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let grp_id: i64 = row.get(0)?;
+                let title_id: i64 = row.get(1)?;
+                Ok((grp_id, title_id))
+            }) {
+                for r in rows.flatten() {
+                    if let Some(name) = loc_map.get(&r.1) {
+                        fallback.entry(r.0 as u32).or_insert_with(|| name.clone());
+                    }
+                }
+            }
+        }
+
+        if fallback.len() > 1000 {
+            return fallback;
+        }
+    }
+
+    fallback
 }
 
 pub fn build_name_index(db: &Lookup) -> HashMap<String, u32> {

@@ -15,6 +15,9 @@ pub struct Cli {
 
     #[arg(long, default_value = "0", help = "Number of scan threads (0 = all CPU cores)")]
     pub threads: usize,
+
+    #[arg(long, help = "Custom MTGA installation path (e.g. D:/Games/MTGA)")]
+    pub mtga_path: Option<PathBuf>,
 }
 
 pub struct Config {
@@ -30,6 +33,7 @@ pub struct Config {
     pub output_unknown_json: PathBuf,
     pub output_unknown_csv: PathBuf,
     pub threads: usize,
+    pub mtga_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -56,6 +60,7 @@ impl Config {
             output_unknown_txt: output_dir.join("mtga_collection_unknown.txt"),
             output_unknown_json: output_dir.join("mtga_collection_unknown.json"),
             output_unknown_csv: output_dir.join("mtga_collection_unknown.csv"),
+            mtga_path: cli.mtga_path,
         }
     }
 }

@@ -70,6 +70,7 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
             println!("  {}. {} (x{})", i + 1, a.name, a.quantity);
         }
         let response = prompt("  Use these? [Y/n]: ");
+        let response = response.to_lowercase();
         if response.is_empty() || response == "y" || response == "yes" {
             return saved;
         }

@@ -14,7 +14,7 @@ fn main() {
     println!("Output Folder: {}\n", cfg.output_dir.display());
 
     // Load card database
-    let db = database::load_card_database(&cfg.lookup_file);
+    let db = database::load_card_database(&cfg.lookup_file, cfg.mtga_path.as_deref());
     if db.is_empty() {
         println!("Database init failed.");
         wait_exit();
@@ -125,7 +125,8 @@ fn main() {
         .max_by_key(|b| b.len())
         .unwrap_or_default();
 
-    export::do_export(&cfg, &collection, &db);
+    let name_fallback = database::load_local_name_fallback(cfg.mtga_path.as_deref());
+    export::do_export(&cfg, &collection, &db, &name_fallback);
 
     wait_exit();
 }

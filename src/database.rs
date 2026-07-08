@@ -382,45 +382,16 @@ fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
 }
 
 pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Lookup {
-    if lookup_path.exists() {
-        println!("Loading cached database...");
-        match std::fs::File::open(lookup_path) {
-            Ok(f) => {
-                let data: HashMap<String, CardInfo> = match serde_json::from_reader(f) {
-                    Ok(d) => d,
-                    Err(_) => {
-                        println!("Cache corrupted.");
-                        return Lookup::new();
-                    }
-                };
-                let mut lookup = Lookup::new();
-                for (k, v) in &data {
-                    if let Ok(id) = k.parse::<u32>() {
-                        lookup.insert(id, v.clone());
-                    }
-                }
-                if !lookup.is_empty() {
-                    println!("Loaded {} cards from cache.", lookup.len());
-                    return lookup;
-                }
-            }
-            Err(_) => {
-                println!("Cache corrupted.");
-            }
-        }
+    // Priority: CLI arg > saved path > auto-detect > interactive > Scryfall
+    let effective = mtga_path.map(|p| p.to_path_buf())
+        .or_else(|| load_saved_mtga_path(lookup_path));
+    let mut lookup = load_local_mtga_database(effective.as_deref());
+
+    if lookup.is_empty() {
+        lookup = load_local_mtga_database(None);
     }
 
-    let mut lookup = load_local_mtga_database(mtga_path);
-
-    if lookup.is_empty() && mtga_path.is_none() {
-        // Try saved path from previous interactive session
-        if let Some(saved) = load_saved_mtga_path(lookup_path) {
-            lookup = load_local_mtga_database(Some(&saved));
-        }
-    }
-
-    if lookup.is_empty() && mtga_path.is_none() {
-        // Interactive prompt
+    if lookup.is_empty() {
         if let Some(root) = prompt_mtga_path(lookup_path) {
             lookup = load_local_mtga_database(Some(&root));
         }
@@ -429,17 +400,6 @@ pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Looku
     if lookup.is_empty() {
         println!("\n[Warn] Local database not found. Downloading from Scryfall...");
         lookup = fetch_scryfall_database();
-    }
-
-    if !lookup.is_empty() {
-        let string_keyed: HashMap<String, &CardInfo> =
-            lookup.iter().map(|(k, v)| (k.to_string(), v)).collect();
-        crate::util::ensure_parent(lookup_path);
-        if let Ok(f) = std::fs::File::create(lookup_path) {
-            if serde_json::to_writer(f, &string_keyed).is_ok() {
-                println!("Database cached.");
-            }
-        }
     }
 
     lookup

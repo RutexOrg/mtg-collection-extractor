@@ -10,6 +10,7 @@ pub struct CollectionEntry {
     pub count: u32,
     pub name: String,
     pub set: String,
+    pub cn: String,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,7 @@ pub fn extract_collection(
                 count: 0,
                 name: info.name.clone(),
                 set: info.set.clone(),
+                cn: info.collector_number.clone(),
             });
             entry.count += qty;
         } else {
@@ -78,6 +80,7 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
                 "count": e.count,
                 "name": e.name,
                 "set": e.set,
+                "cn": e.cn,
             })
         })
         .collect();

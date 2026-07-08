@@ -53,6 +53,21 @@ pub fn get_table_names(conn: &Connection) -> Vec<String> {
 
 pub fn load_loc_map(conn: &Connection) -> HashMap<i64, String> {
     let mut loc_map = HashMap::new();
+    // Load plain text (Formatted = 0) first so it takes priority over formatted.
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 0",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let text: String = row.get(1)?;
+            Ok((id, text))
+        }) {
+            for r in rows.flatten() {
+                loc_map.insert(r.0, r.1);
+            }
+        }
+    }
+    // Also load formatted names (Formatted = 1) for LocIds that lack plain text.
     if let Ok(mut stmt) = conn.prepare(
         "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
     ) {
@@ -62,7 +77,10 @@ pub fn load_loc_map(conn: &Connection) -> HashMap<i64, String> {
             Ok((id, text))
         }) {
             for r in rows.flatten() {
-                loc_map.insert(r.0, r.1);
+                let name = r.1;
+                loc_map.entry(r.0).or_insert_with(|| {
+                    name.replace("<nobr>", "").replace("</nobr>", "")
+                });
             }
         }
     }

@@ -160,6 +160,7 @@ fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
             continue;
         }
 
+        pb.println(format!("  Reading: {}", entry.path().display()));
         let loc_map = crate::util::load_loc_map(&conn);
 
         let cols: Vec<String> = match conn.prepare("PRAGMA table_info(Cards)") {

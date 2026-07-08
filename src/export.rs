@@ -6,10 +6,10 @@ use crate::database::Lookup;
 
 #[derive(Debug, Clone)]
 pub struct CollectionEntry {
+    pub card_id: u32,
     pub count: u32,
     pub name: String,
     pub set: String,
-    pub cn: String,
 }
 
 #[derive(Debug, Clone)]
@@ -30,10 +30,10 @@ pub fn extract_collection(
         if let Some(info) = db.get(cid) {
             let key = (info.name.clone(), info.set.clone());
             let entry = merged.entry(key).or_insert(CollectionEntry {
+                card_id: *cid,
                 count: 0,
                 name: info.name.clone(),
                 set: info.set.clone(),
-                cn: info.collector_number.clone(),
             });
             entry.count += qty;
         } else {
@@ -74,10 +74,10 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
         .iter()
         .map(|e| {
             serde_json::json!({
+                "card_id": e.card_id,
                 "count": e.count,
                 "name": e.name,
                 "set": e.set,
-                "cn": e.cn,
             })
         })
         .collect();
@@ -89,17 +89,9 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
 pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
 
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
-    let _ = wtr.write_record(["Count", "Name", "Edition", "Condition", "Language", "Foil", "Tag"]);
+    let _ = wtr.write_record(["card_id", "count", "name", "set"]);
     for e in entries {
-        let _ = wtr.write_record(&[
-            e.count.to_string(),
-            e.name.clone(),
-            e.set.clone(),
-            "Near Mint".to_string(),
-            "English".to_string(),
-            String::new(),
-            String::new(),
-        ]);
+        let _ = wtr.write_record(&[e.card_id.to_string(), e.count.to_string(), e.name.clone(), e.set.clone()]);
     }
     let _ = wtr.flush();
 }

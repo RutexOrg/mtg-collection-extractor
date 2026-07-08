@@ -22,7 +22,7 @@ fn read_registry_install_path() -> Option<String> {
     ];
     for key in &keys {
         let output = std::process::Command::new("reg")
-            .args(&["query", key, "/v", "InstallLocation"])
+            .args(["query", key, "/v", "InstallLocation"])
             .output()
             .ok()?;
         if !output.status.success() {
@@ -60,10 +60,9 @@ fn find_local_mtga_path(custom: Option<&std::path::Path>) -> Option<std::path::P
                 return Some(raw);
             }
         }
-        if c_exists && c.file_name().and_then(|s| s.to_str()) == Some("Raw") {
-            if c.join("..").join("..").join("MTGA.exe").exists() {
-                return Some(c.to_path_buf());
-            }
+        if c_exists && c.file_name().and_then(|s| s.to_str()) == Some("Raw")
+            && c.join("..").join("..").join("MTGA.exe").exists() {
+            return Some(c.to_path_buf());
         }
         if c_exists {
             return Some(c.to_path_buf());
@@ -346,23 +345,24 @@ fn fetch_scryfall_database() -> Lookup {
     lookup
 }
 
-fn saved_mtga_path_file(lookup_path: &Path) -> std::path::PathBuf {
-    lookup_path.parent().unwrap_or(Path::new("data")).join("mtga_path.txt")
+fn saved_mtga_path_file(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join("mtga_path.txt")
 }
 
-fn load_saved_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
-    let path = saved_mtga_path_file(lookup_path);
+fn load_saved_mtga_path(data_dir: &Path) -> Option<std::path::PathBuf> {
+    let path = saved_mtga_path_file(data_dir);
     let content = std::fs::read_to_string(path).ok()?;
     let trimmed = content.trim().to_string();
     if trimmed.is_empty() { None } else { Some(std::path::PathBuf::from(trimmed)) }
 }
 
-fn save_mtga_path(lookup_path: &Path, raw_path: &Path) {
-    crate::util::ensure_parent(lookup_path);
-    let _ = std::fs::write(saved_mtga_path_file(lookup_path), raw_path.to_string_lossy().as_ref());
+fn save_mtga_path(data_dir: &Path, raw_path: &Path) {
+    let path_file = saved_mtga_path_file(data_dir);
+    crate::util::ensure_parent(&path_file);
+    let _ = std::fs::write(path_file, raw_path.to_string_lossy().as_ref());
 }
 
-fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
+fn prompt_mtga_path(data_dir: &Path) -> Option<std::path::PathBuf> {
     println!("\nMTGA installation not found at default locations.");
     println!("  Enter the path to your MTGA folder (e.g. D:/Games/MTGA)");
     let input = crate::util::prompt("  Path (or press Enter to download from Scryfall): ");
@@ -372,7 +372,7 @@ fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
     let p = std::path::PathBuf::from(&input);
     let raw = p.join("MTGA_Data").join("Downloads").join("Raw");
     if raw.exists() {
-        save_mtga_path(lookup_path, &p);
+        save_mtga_path(data_dir, &p);
         Some(p)
     } else {
         println!("  Path not found: {}", raw.display());
@@ -381,10 +381,10 @@ fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
     }
 }
 
-pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Lookup {
+pub fn load_card_database(data_dir: &Path, mtga_path: Option<&Path>) -> Lookup {
     // Priority: CLI arg > saved path > auto-detect > interactive > Scryfall
     let effective = mtga_path.map(|p| p.to_path_buf())
-        .or_else(|| load_saved_mtga_path(lookup_path));
+        .or_else(|| load_saved_mtga_path(data_dir));
     let mut lookup = load_local_mtga_database(effective.as_deref());
 
     if lookup.is_empty() {
@@ -392,7 +392,7 @@ pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Looku
     }
 
     if lookup.is_empty() {
-        if let Some(root) = prompt_mtga_path(lookup_path) {
+        if let Some(root) = prompt_mtga_path(data_dir) {
             lookup = load_local_mtga_database(Some(&root));
         }
     }
@@ -403,56 +403,6 @@ pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Looku
     }
 
     lookup
-}
-
-pub fn load_local_name_fallback(mtga_path: Option<&std::path::Path>) -> HashMap<u32, String> {
-    let raw_path = match find_local_mtga_path(mtga_path) {
-        Some(p) => p,
-        None => return HashMap::new(),
-    };
-
-    let entries = crate::util::list_mtga_files(&raw_path);
-
-    let mut fallback = HashMap::new();
-
-    for entry in &entries {
-        let path = entry.path();
-        let conn = match crate::util::open_mtga_db(&path) {
-            Some(c) => c,
-            None => continue,
-        };
-
-        let tables = crate::util::get_table_names(&conn);
-        if !tables.contains(&"Cards".to_string()) {
-            continue;
-        }
-
-        if !tables.contains(&"Localizations_enUS".to_string()) {
-            continue;
-        }
-
-        let loc_map = crate::util::load_loc_map(&conn);
-
-        if let Ok(mut stmt) = conn.prepare("SELECT GrpId, TitleId FROM Cards") {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                let grp_id: i64 = row.get(0)?;
-                let title_id: i64 = row.get(1)?;
-                Ok((grp_id, title_id))
-            }) {
-                for r in rows.flatten() {
-                    if let Some(name) = loc_map.get(&r.1) {
-                        fallback.entry(r.0 as u32).or_insert_with(|| name.clone());
-                    }
-                }
-            }
-        }
-
-        if fallback.len() > 1000 {
-            return fallback;
-        }
-    }
-
-    fallback
 }
 
 pub fn build_name_index(db: &Lookup) -> HashMap<String, u32> {

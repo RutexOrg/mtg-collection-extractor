@@ -22,7 +22,7 @@ pub fn load_anchors(anchor_path: &Path) -> Option<AnchorList> {
         .filter_map(|v| {
             let arr = v.as_array()?;
             Some(Anchor {
-                arena_id: arr.get(0)?.as_u64()? as u32,
+                arena_id: arr.first()?.as_u64()? as u32,
                 quantity: arr.get(1)?.as_u64()? as u32,
                 name: arr.get(2)?.as_str()?.to_string(),
             })

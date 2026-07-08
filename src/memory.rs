@@ -28,8 +28,10 @@ fn find_process_id(name: &str) -> Option<u32> {
             Ok(s) => s,
             Err(_) => return None,
         };
-        let mut entry = PROCESSENTRY32W::default();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
 
         if Process32FirstW(snapshot, &mut entry).is_err() {
             let _ = CloseHandle(snapshot);
@@ -130,7 +132,7 @@ impl ProcessHandle {
                     != PAGE_PROTECTION_FLAGS(0);
 
             if is_readable {
-                infos.push((mbi.BaseAddress as u64, region_size as usize));
+                infos.push((mbi.BaseAddress as u64, region_size));
             }
 
             addr = mbi.BaseAddress as u64 + region_size as u64;
@@ -236,11 +238,7 @@ impl MemorySource {
         offset_back: usize,
         read_size: usize,
     ) -> Vec<HashMap<u32, u32>> {
-        let read_start = if addr >= offset_back as u64 {
-            addr - offset_back as u64
-        } else {
-            0
-        };
+        let read_start = addr.saturating_sub(offset_back as u64);
 
         if let Some(data) = self.handle.read_bytes(read_start, read_size) {
             parse_blocks(&data)

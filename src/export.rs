@@ -22,7 +22,6 @@ pub struct UnknownEntry {
 pub fn extract_collection(
     raw: &HashMap<u32, u32>,
     db: &Lookup,
-    name_fallback: &HashMap<u32, String>,
 ) -> (Vec<CollectionEntry>, Vec<UnknownEntry>) {
     let mut merged: HashMap<(String, String), CollectionEntry> = HashMap::new();
     let mut unknown: HashMap<u32, u32> = HashMap::new();
@@ -50,7 +49,7 @@ pub fn extract_collection(
         .map(|(arena_id, count)| UnknownEntry {
             arena_id,
             count,
-            name: name_fallback.get(&arena_id).cloned(),
+            name: None,
         })
         .collect();
     unknown_list.sort_by_key(|e| e.arena_id);
@@ -59,7 +58,6 @@ pub fn extract_collection(
 }
 
 pub fn export_txt(path: &Path, entries: &[CollectionEntry]) {
-    crate::util::ensure_parent(path);
     let mut output = String::new();
     for e in entries {
         if e.set.is_empty() {
@@ -72,7 +70,6 @@ pub fn export_txt(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
-    crate::util::ensure_parent(path);
     let data: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
@@ -90,9 +87,9 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
-    crate::util::ensure_parent(path);
+
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
-    let _ = wtr.write_record(&["Count", "Name", "Edition", "Condition", "Language", "Foil", "Tag"]);
+    let _ = wtr.write_record(["Count", "Name", "Edition", "Condition", "Language", "Foil", "Tag"]);
     for e in entries {
         let _ = wtr.write_record(&[
             e.count.to_string(),
@@ -108,7 +105,7 @@ pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
-    crate::util::ensure_parent(path);
+
     let mut output = String::new();
     for e in entries {
         let label = match &e.name {
@@ -121,7 +118,7 @@ pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
 }
 
 pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
-    crate::util::ensure_parent(path);
+
     let data: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
@@ -141,9 +138,9 @@ pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
 }
 
 pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
-    crate::util::ensure_parent(path);
+
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
-    let _ = wtr.write_record(&["Count", "Name", "ArenaID"]);
+    let _ = wtr.write_record(["Count", "Name", "ArenaID"]);
     for e in entries {
         let _ = wtr.write_record(&[
             e.count.to_string(),
@@ -154,8 +151,9 @@ pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
     let _ = wtr.flush();
 }
 
-pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup, name_fallback: &HashMap<u32, String>) {
-    let (entries, unknown) = extract_collection(raw, db, name_fallback);
+pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
+    let (entries, unknown) = extract_collection(raw, db);
+    crate::util::ensure_parent(&cfg.output_dir);
     println!("\n[Success] Found {} unique entries.", entries.len());
 
     export_txt(&cfg.output_txt, &entries);

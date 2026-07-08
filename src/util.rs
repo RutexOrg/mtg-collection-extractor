@@ -1,0 +1,103 @@
+use std::collections::HashMap;
+use std::io::{self, Write};
+use std::path::Path;
+
+use rusqlite::Connection;
+
+pub fn prompt(msg: &str) -> String {
+    print!("{}", msg);
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok();
+    input.trim().to_string()
+}
+
+pub fn ensure_parent(path: &Path) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+}
+
+pub fn list_mtga_files(dir: &Path) -> Vec<std::fs::DirEntry> {
+    let mut entries: Vec<_> = match std::fs::read_dir(dir) {
+        Ok(d) => d.filter_map(|e| e.ok()).collect(),
+        Err(_) => return Vec::new(),
+    };
+    entries.sort_by_key(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
+    entries.reverse();
+    entries
+}
+
+pub fn open_mtga_db(path: &Path) -> Option<Connection> {
+    if path.extension().and_then(|s| s.to_str()) != Some("mtga") {
+        return None;
+    }
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() < 500 * 1024 {
+            return None;
+        }
+    }
+    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+}
+
+pub fn get_table_names(conn: &Connection) -> Vec<String> {
+    match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn load_loc_map(conn: &Connection, has_new_loc: bool, has_old_loc: bool) -> HashMap<i64, String> {
+    let mut loc_map: HashMap<i64, String> = HashMap::new();
+
+    if has_new_loc {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let text: String = row.get(1)?;
+                Ok((id, text))
+            }) {
+                for r in rows.flatten() {
+                    loc_map.insert(r.0, r.1);
+                }
+            }
+        }
+    }
+
+    if loc_map.is_empty() && has_old_loc {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let text: String = row.get(1)?;
+                Ok((id, text))
+            }) {
+                for r in rows.flatten() {
+                    loc_map.insert(r.0, r.1);
+                }
+            }
+        }
+        if loc_map.is_empty() {
+            if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    let id: i64 = row.get(0)?;
+                    let text: String = row.get(1)?;
+                    Ok((id, text))
+                }) {
+                    for r in rows.flatten() {
+                        loc_map.insert(r.0, r.1);
+                    }
+                }
+            }
+        }
+    }
+
+    loc_map
+}

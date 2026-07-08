@@ -58,14 +58,8 @@ pub fn extract_collection(
     (list, unknown_list)
 }
 
-fn ensure_parent(path: &Path) {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-}
-
 pub fn export_txt(path: &Path, entries: &[CollectionEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let mut output = String::new();
     for e in entries {
         if e.set.is_empty() {
@@ -78,7 +72,7 @@ pub fn export_txt(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let data: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
@@ -96,7 +90,7 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
     let _ = wtr.write_record(&["Count", "Name", "Edition", "Condition", "Language", "Foil", "Tag"]);
     for e in entries {
@@ -114,7 +108,7 @@ pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
 }
 
 pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let mut output = String::new();
     for e in entries {
         let label = match &e.name {
@@ -127,7 +121,7 @@ pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
 }
 
 pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let data: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
@@ -147,7 +141,7 @@ pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
 }
 
 pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
-    ensure_parent(path);
+    crate::util::ensure_parent(path);
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
     let _ = wtr.write_record(&["Count", "Name", "ArenaID"]);
     for e in entries {

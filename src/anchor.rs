@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,14 +10,6 @@ pub struct Anchor {
 }
 
 pub type AnchorList = Vec<Anchor>;
-
-fn prompt(msg: &str) -> String {
-    print!("{}", msg);
-    io::stdout().flush().ok();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).ok();
-    input.trim().to_string()
-}
 
 pub fn load_anchors(anchor_path: &Path) -> Option<AnchorList> {
     if !anchor_path.exists() {
@@ -55,9 +46,7 @@ pub fn save_anchors(anchor_path: &Path, anchors: &AnchorList) {
             ]
         })
         .collect();
-    if let Some(parent) = anchor_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    crate::util::ensure_parent(anchor_path);
     if let Ok(f) = std::fs::File::create(anchor_path) {
         let _ = serde_json::to_writer_pretty(f, &data);
     }
@@ -69,7 +58,7 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
         for (i, a) in saved.iter().enumerate() {
             println!("  {}. {} (x{})", i + 1, a.name, a.quantity);
         }
-        let response = prompt("  Use these? [Y/n]: ");
+        let response = crate::util::prompt("  Use these? [Y/n]: ");
         let response = response.to_lowercase();
         if response.is_empty() || response == "y" || response == "yes" {
             return saved;
@@ -83,7 +72,7 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
     let mut anchors = AnchorList::new();
     while anchors.len() < 5 {
         println!("\nCard #{} (Enter empty to finish):", anchors.len() + 1);
-        let name_input = prompt("  Name: ");
+        let name_input = crate::util::prompt("  Name: ");
 
         if name_input.is_empty() {
             if !anchors.is_empty() {
@@ -115,7 +104,7 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
                     for (i, m) in fuzzy.iter().enumerate() {
                         println!("    {}. {}", i + 1, title_case(m));
                     }
-                    let sel = prompt("  Select #: ");
+                    let sel = crate::util::prompt("  Select #: ");
                     let idx: usize = match sel.parse::<usize>() {
                         Ok(n) if n >= 1 && n <= fuzzy.len() => n - 1,
                         _ => continue,
@@ -132,7 +121,7 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
 
         let max_qty = 999_999u32;
         let qty = loop {
-            let qty_input = prompt(&format!("  Quantity of '{}': ", final_name));
+            let qty_input = crate::util::prompt(&format!("  Quantity of '{}': ", final_name));
             match qty_input.parse::<u32>() {
                 Ok(n) if n >= 1 && n <= max_qty => break n,
                 Ok(n) if n > max_qty => {

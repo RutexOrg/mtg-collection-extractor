@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::path::Path;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardInfo {
@@ -121,17 +120,11 @@ fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
 
     let mut lookup = Lookup::new();
 
-    let mut entries: Vec<_> = match std::fs::read_dir(&raw_path) {
-        Ok(d) => d.filter_map(|e| e.ok()).collect(),
-        Err(_) => return lookup,
-    };
-    entries.sort_by_key(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
-    entries.reverse();
-
+    let entries = crate::util::list_mtga_files(&raw_path);
     let total = entries.len();
     let pb = ProgressBar::new(total as u64);
     pb.set_style(
-        ProgressStyle::default_bar()
+        indicatif::ProgressStyle::default_bar()
             .template("{prefix:>10} [{bar:30}] {percent:>3}% {msg}")
             .unwrap()
             .progress_chars("█░"),
@@ -149,40 +142,15 @@ fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
         pb.set_message(format!("Checking {}...", display));
 
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("mtga") {
-            pb.inc(1);
-            continue;
-        }
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() < 500 * 1024 {
-                pb.inc(1);
-                continue;
-            }
-        }
-
-        let conn = match rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ) {
-            Ok(c) => c,
-            Err(_) => {
+        let conn = match crate::util::open_mtga_db(&path) {
+            Some(c) => c,
+            None => {
                 pb.inc(1);
                 continue;
             }
         };
 
-        let tables: Vec<String> = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
-            Ok(mut stmt) => stmt
-                .query_map([], |row| row.get::<_, String>(0))
-                .ok()
-                .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                .unwrap_or_default(),
-            Err(_) => {
-                pb.inc(1);
-                continue;
-            }
-        };
-
+        let tables = crate::util::get_table_names(&conn);
         if !tables.contains(&"Cards".to_string()) {
             pb.inc(1);
             continue;
@@ -195,54 +163,7 @@ fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
             continue;
         }
 
-        let mut loc_map: HashMap<i64, String> = HashMap::new();
-
-        // New schema: Localizations_enUS (LocId, Formatted, Loc)
-        if has_new_loc {
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
-            ) {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: i64 = row.get(0)?;
-                    let text: String = row.get(1)?;
-                    Ok((id, text))
-                }) {
-                    for r in rows.flatten() {
-                        loc_map.insert(r.0, r.1);
-                    }
-                }
-            }
-        }
-
-        // Old schema fallback: Localizations (Id, Text)
-        if loc_map.is_empty() && has_old_loc {
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
-            ) {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: i64 = row.get(0)?;
-                    let text: String = row.get(1)?;
-                    Ok((id, text))
-                }) {
-                    for r in rows.flatten() {
-                        loc_map.insert(r.0, r.1);
-                    }
-                }
-            }
-            if loc_map.is_empty() {
-                if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
-                    if let Ok(rows) = stmt.query_map([], |row| {
-                        let id: i64 = row.get(0)?;
-                        let text: String = row.get(1)?;
-                        Ok((id, text))
-                    }) {
-                        for r in rows.flatten() {
-                            loc_map.insert(r.0, r.1);
-                        }
-                    }
-                }
-            }
-        }
+        let loc_map = crate::util::load_loc_map(&conn, has_new_loc, has_old_loc);
 
         let cols: Vec<String> = match conn.prepare("PRAGMA table_info(Cards)") {
             Ok(mut stmt) => stmt
@@ -367,7 +288,7 @@ fn fetch_scryfall_database() -> Lookup {
     let total_size = response.content_length().unwrap_or(0);
     let pb = ProgressBar::new(total_size);
     pb.set_style(
-        ProgressStyle::default_bar()
+        indicatif::ProgressStyle::default_bar()
             .template("{prefix:>10} [{bar:30}] {bytes:>7}/{total_bytes} {msg}")
             .unwrap()
             .progress_chars("█░"),
@@ -427,14 +348,6 @@ fn fetch_scryfall_database() -> Lookup {
     lookup
 }
 
-fn prompt(msg: &str) -> String {
-    print!("{}", msg);
-    io::stdout().flush().ok();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).ok();
-    input.trim().to_string()
-}
-
 fn saved_mtga_path_file(lookup_path: &Path) -> std::path::PathBuf {
     lookup_path.parent().unwrap_or(Path::new("data")).join("mtga_path.txt")
 }
@@ -447,16 +360,14 @@ fn load_saved_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
 }
 
 fn save_mtga_path(lookup_path: &Path, raw_path: &Path) {
-    if let Some(parent) = lookup_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    crate::util::ensure_parent(lookup_path);
     let _ = std::fs::write(saved_mtga_path_file(lookup_path), raw_path.to_string_lossy().as_ref());
 }
 
 fn prompt_mtga_path(lookup_path: &Path) -> Option<std::path::PathBuf> {
     println!("\nMTGA installation not found at default locations.");
     println!("  Enter the path to your MTGA folder (e.g. D:/Games/MTGA)");
-    let input = prompt("  Path (or press Enter to download from Scryfall): ");
+    let input = crate::util::prompt("  Path (or press Enter to download from Scryfall): ");
     if input.is_empty() {
         return None;
     }
@@ -525,9 +436,7 @@ pub fn load_card_database(lookup_path: &Path, mtga_path: Option<&Path>) -> Looku
     if !lookup.is_empty() {
         let string_keyed: HashMap<String, &CardInfo> =
             lookup.iter().map(|(k, v)| (k.to_string(), v)).collect();
-        if let Some(parent) = lookup_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::util::ensure_parent(lookup_path);
         if let Ok(f) = std::fs::File::create(lookup_path) {
             if serde_json::to_writer(f, &string_keyed).is_ok() {
                 println!("Database cached.");
@@ -544,43 +453,18 @@ pub fn load_local_name_fallback(mtga_path: Option<&std::path::Path>) -> HashMap<
         None => return HashMap::new(),
     };
 
-    let mut entries: Vec<_> = match std::fs::read_dir(&raw_path) {
-        Ok(d) => d.filter_map(|e| e.ok()).collect(),
-        Err(_) => return HashMap::new(),
-    };
-    entries.sort_by_key(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
-    entries.reverse();
+    let entries = crate::util::list_mtga_files(&raw_path);
 
     let mut fallback = HashMap::new();
 
     for entry in &entries {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("mtga") {
-            continue;
-        }
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() < 500 * 1024 {
-                continue;
-            }
-        }
-
-        let conn = match rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let conn = match crate::util::open_mtga_db(&path) {
+            Some(c) => c,
+            None => continue,
         };
 
-        let tables: Vec<String> = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
-            Ok(mut stmt) => stmt
-                .query_map([], |row| row.get::<_, String>(0))
-                .ok()
-                .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                .unwrap_or_default(),
-            Err(_) => continue,
-        };
-
+        let tables = crate::util::get_table_names(&conn);
         if !tables.contains(&"Cards".to_string()) {
             continue;
         }
@@ -591,54 +475,7 @@ pub fn load_local_name_fallback(mtga_path: Option<&std::path::Path>) -> HashMap<
             continue;
         }
 
-        let mut loc_map: HashMap<i64, String> = HashMap::new();
-
-        // New schema: Localizations_enUS (LocId, Formatted, Loc)
-        if has_new_loc {
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
-            ) {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: i64 = row.get(0)?;
-                    let text: String = row.get(1)?;
-                    Ok((id, text))
-                }) {
-                    for r in rows.flatten() {
-                        loc_map.insert(r.0, r.1);
-                    }
-                }
-            }
-        }
-
-        // Old schema fallback: Localizations (Id, Text)
-        if loc_map.is_empty() && has_old_loc {
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
-            ) {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: i64 = row.get(0)?;
-                    let text: String = row.get(1)?;
-                    Ok((id, text))
-                }) {
-                    for r in rows.flatten() {
-                        loc_map.insert(r.0, r.1);
-                    }
-                }
-            }
-            if loc_map.is_empty() {
-                if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
-                    if let Ok(rows) = stmt.query_map([], |row| {
-                        let id: i64 = row.get(0)?;
-                        let text: String = row.get(1)?;
-                        Ok((id, text))
-                    }) {
-                        for r in rows.flatten() {
-                            loc_map.insert(r.0, r.1);
-                        }
-                    }
-                }
-            }
-        }
+        let loc_map = crate::util::load_loc_map(&conn, has_new_loc, has_old_loc);
 
         if let Ok(mut stmt) = conn.prepare("SELECT GrpId, TitleId FROM Cards") {
             if let Ok(rows) = stmt.query_map([], |row| {

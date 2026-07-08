@@ -3,8 +3,8 @@ mod database;
 mod anchor;
 mod memory;
 mod export;
+mod util;
 
-use std::io::{self, Write};
 use indicatif::{ProgressBar, ProgressStyle};
 
 fn main() {
@@ -13,7 +13,15 @@ fn main() {
     let cfg = config::Config::from_cli();
     println!("Output Folder: {}\n", cfg.output_dir.display());
 
-    // Load card database
+    let mem_source = match memory::MemorySource::from_process() {
+        Some(m) => m,
+        None => {
+            println!("MTG Arena not running. Open game and 'Collections' tab first.");
+            wait_exit();
+            return;
+        }
+    };
+
     let db = database::load_card_database(&cfg.lookup_file, cfg.mtga_path.as_deref());
     if db.is_empty() {
         println!("Database init failed.");
@@ -27,15 +35,6 @@ fn main() {
             .build_global()
             .ok();
     }
-
-    let mem_source = match memory::MemorySource::from_process() {
-        Some(m) => m,
-        None => {
-            println!("MTG Arena not running. Open game and 'Collections' tab first.");
-            wait_exit();
-            return;
-        }
-    };
 
     let name_to_id = database::build_name_index(&db);
     let anchors = anchor::interactive_anchors(&name_to_id, &cfg.anchor_file);
@@ -131,14 +130,6 @@ fn main() {
     wait_exit();
 }
 
-fn prompt(msg: &str) -> String {
-    print!("{}", msg);
-    io::stdout().flush().ok();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).ok();
-    input.trim().to_string()
-}
-
 fn make_pattern(arena_id: u32, quantity: u32) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(8);
     bytes.extend_from_slice(&arena_id.to_le_bytes());
@@ -148,5 +139,5 @@ fn make_pattern(arena_id: u32, quantity: u32) -> Vec<u8> {
 
 fn wait_exit() {
     println!();
-    prompt("Press Enter to exit...");
+    util::prompt("Press Enter to exit...");
 }

@@ -92,9 +92,9 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
 pub fn export_csv(path: &Path, entries: &[CollectionEntry]) {
 
     let mut wtr = csv::Writer::from_path(path).expect("Failed to create CSV writer");
-    let _ = wtr.write_record(["card_id", "count", "name", "set"]);
+    let _ = wtr.write_record(["card_id", "count", "name", "set", "cn"]);
     for e in entries {
-        let _ = wtr.write_record(&[e.card_id.to_string(), e.count.to_string(), e.name.clone(), e.set.clone()]);
+        let _ = wtr.write_record(&[e.card_id.to_string(), e.count.to_string(), e.name.clone(), e.set.clone(), e.cn.clone()]);
     }
     let _ = wtr.flush();
 }

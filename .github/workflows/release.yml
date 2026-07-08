@@ -18,11 +18,28 @@ jobs:
 
       - run: cargo build --release
 
-      - name: Create/Update Release
+      - name: Generate release tag
+        id: vars
+        shell: bash
+        run: echo "tag=build-$(date -u +'%Y-%m-%d_%H-%M-%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Build
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: ${{ steps.vars.outputs.tag }}
           prerelease: true
           make_latest: true
           files: target/release/*.exe
+
+      - name: Cleanup old releases (keep last 10)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+          | while read -r old_tag; do
+              echo "Deleting old release: $old_tag"
+              gh release delete "$old_tag" --yes --cleanup-tag
+            done

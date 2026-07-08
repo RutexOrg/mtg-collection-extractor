@@ -51,53 +51,20 @@ pub fn get_table_names(conn: &Connection) -> Vec<String> {
     }
 }
 
-pub fn load_loc_map(conn: &Connection, has_new_loc: bool, has_old_loc: bool) -> HashMap<i64, String> {
-    let mut loc_map: HashMap<i64, String> = HashMap::new();
-
-    if has_new_loc {
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let text: String = row.get(1)?;
-                Ok((id, text))
-            }) {
-                for r in rows.flatten() {
-                    loc_map.insert(r.0, r.1);
-                }
+pub fn load_loc_map(conn: &Connection) -> HashMap<i64, String> {
+    let mut loc_map = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT LocId, Loc FROM Localizations_enUS WHERE Formatted = 1",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let text: String = row.get(1)?;
+            Ok((id, text))
+        }) {
+            for r in rows.flatten() {
+                loc_map.insert(r.0, r.1);
             }
         }
     }
-
-    if loc_map.is_empty() && has_old_loc {
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let text: String = row.get(1)?;
-                Ok((id, text))
-            }) {
-                for r in rows.flatten() {
-                    loc_map.insert(r.0, r.1);
-                }
-            }
-        }
-        if loc_map.is_empty() {
-            if let Ok(mut stmt) = conn.prepare("SELECT Id, Text FROM Localizations") {
-                if let Ok(rows) = stmt.query_map([], |row| {
-                    let id: i64 = row.get(0)?;
-                    let text: String = row.get(1)?;
-                    Ok((id, text))
-                }) {
-                    for r in rows.flatten() {
-                        loc_map.insert(r.0, r.1);
-                    }
-                }
-            }
-        }
-    }
-
     loc_map
 }

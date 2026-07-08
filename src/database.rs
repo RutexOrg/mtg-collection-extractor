@@ -156,14 +156,12 @@ fn load_local_mtga_database(mtga_path: Option<&std::path::Path>) -> Lookup {
             continue;
         }
 
-        let has_new_loc = tables.contains(&"Localizations_enUS".to_string());
-        let has_old_loc = tables.contains(&"Localizations".to_string());
-        if !has_new_loc && !has_old_loc {
+        if !tables.contains(&"Localizations_enUS".to_string()) {
             pb.inc(1);
             continue;
         }
 
-        let loc_map = crate::util::load_loc_map(&conn, has_new_loc, has_old_loc);
+        let loc_map = crate::util::load_loc_map(&conn);
 
         let cols: Vec<String> = match conn.prepare("PRAGMA table_info(Cards)") {
             Ok(mut stmt) => stmt
@@ -469,13 +467,11 @@ pub fn load_local_name_fallback(mtga_path: Option<&std::path::Path>) -> HashMap<
             continue;
         }
 
-        let has_new_loc = tables.contains(&"Localizations_enUS".to_string());
-        let has_old_loc = tables.contains(&"Localizations".to_string());
-        if !has_new_loc && !has_old_loc {
+        if !tables.contains(&"Localizations_enUS".to_string()) {
             continue;
         }
 
-        let loc_map = crate::util::load_loc_map(&conn, has_new_loc, has_old_loc);
+        let loc_map = crate::util::load_loc_map(&conn);
 
         if let Ok(mut stmt) = conn.prepare("SELECT GrpId, TitleId FROM Cards") {
             if let Ok(rows) = stmt.query_map([], |row| {

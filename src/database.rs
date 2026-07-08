@@ -16,27 +16,95 @@ pub struct CardInfo {
 
 pub type Lookup = HashMap<u32, CardInfo>;
 
+fn read_registry_install_path() -> Option<String> {
+    let keys = [
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 2141910",
+        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 2141910",
+    ];
+    for key in &keys {
+        let output = std::process::Command::new("reg")
+            .args(&["query", key, "/v", "InstallLocation"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if let Some(pos) = trimmed.find("REG_SZ") {
+                let path = trimmed[pos + 6..].trim();
+                if !path.is_empty() {
+                    return Some(path.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn raw_path_from_root(root: &std::path::Path) -> Option<std::path::PathBuf> {
+    let raw = root.join("MTGA_Data").join("Downloads").join("Raw");
+    if raw.exists() {
+        Some(raw)
+    } else {
+        None
+    }
+}
+
 fn find_local_mtga_path(custom: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    // 1. Custom path from CLI args
     if let Some(c) = custom {
-        let raw = c.join("MTGA_Data").join("Downloads").join("Raw");
-        if raw.exists() {
-            return Some(raw);
+        let c_exists = c.exists();
+        if c_exists && c.join("MTGA.exe").exists() {
+            if let Some(raw) = raw_path_from_root(c) {
+                return Some(raw);
+            }
+        }
+        if c_exists && c.file_name().and_then(|s| s.to_str()) == Some("Raw") {
+            if c.join("..").join("..").join("MTGA.exe").exists() {
+                return Some(c.to_path_buf());
+            }
+        }
+        if c_exists {
+            return Some(c.to_path_buf());
         }
     }
 
-    let paths = [
-        r"C:\Games\",
-        
-        // r"C:\Program Files (x86)\Steam\steamapps\common\MTGA\MTGA_Data\Downloads\Raw",
-        // r"C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
-        // r"C:\Program Files (x86)\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Raw",
+    let standard_roots = [
+        r"C:\Program Files (x86)\Steam\steamapps\common\MTGA",
+        r"D:\Program Files (x86)\Steam\steamapps\common\MTGA",
+        r"C:\Program Files\Steam\steamapps\common\MTGA",
+        r"C:\Program Files\Wizards of the Coast\MTGA",
+        r"C:\Program Files (x86)\Wizards of the Coast\MTGA",
+        r"D:\SteamLibrary\steamapps\common\MTGA",
+        r"E:\SteamLibrary\steamapps\common\MTGA",
+        r"F:\SteamLibrary\steamapps\common\MTGA",
+        r"G:\SteamLibrary\steamapps\common\MTGA",
+        r"C:\MTGA",
+        r"D:\MTGA",
+        r"C:\Games\MTGA",
+        r"D:\Games\MTGA",
     ];
-    for p in &paths {
-        let path = std::path::Path::new(p);
-        if path.exists() {
-            return Some(path.to_path_buf());
+
+    for root in &standard_roots {
+        let p = std::path::Path::new(root);
+        if p.join("MTGA.exe").exists() && p.join("MTGA_Data").exists() {
+            if let Some(raw) = raw_path_from_root(p) {
+                return Some(raw);
+            }
         }
     }
+
+    if let Some(reg_path) = read_registry_install_path() {
+        let p = std::path::Path::new(&reg_path);
+        if p.join("MTGA.exe").exists() {
+            if let Some(raw) = raw_path_from_root(p) {
+                return Some(raw);
+            }
+        }
+    }
+
     None
 }
 

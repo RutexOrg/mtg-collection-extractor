@@ -130,12 +130,17 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
             }
         };
 
-        let qty_input = prompt(&format!("  Quantity of '{}': ", final_name));
-        let qty: u32 = match qty_input.parse() {
-            Ok(n) if n >= 1 => n,
-            _ => {
-                println!("  Invalid quantity.");
-                continue;
+        let max_qty = 999_999u32;
+        let qty = loop {
+            let qty_input = prompt(&format!("  Quantity of '{}': ", final_name));
+            match qty_input.parse::<u32>() {
+                Ok(n) if n >= 1 && n <= max_qty => break n,
+                Ok(n) if n > max_qty => {
+                    println!("  Quantity too large (max {}).", max_qty);
+                }
+                _ => {
+                    println!("  Enter a number between 1 and {}.", max_qty);
+                }
             }
         };
 

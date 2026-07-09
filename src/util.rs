@@ -13,9 +13,7 @@ pub fn prompt(msg: &str) -> String {
 }
 
 pub fn ensure_parent(path: &Path) {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    let _ = std::fs::create_dir_all(path);
 }
 
 pub fn list_mtga_files(dir: &Path) -> Vec<std::fs::DirEntry> {

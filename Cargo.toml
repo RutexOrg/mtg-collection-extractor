@@ -12,7 +12,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 csv = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.12", features = ["blocking", "json", "gzip"] }
 indicatif = "0.17"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
@@ -26,6 +25,7 @@ windows = { version = "0.58", features = [
     "Win32_System_Console",
     "Win32_Storage_FileSystem",
     "Win32_UI_Shell",
+    "Win32_System_Registry",
 ]} 
 strsim = "0.11"
 

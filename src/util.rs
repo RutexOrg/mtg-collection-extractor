@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -13,15 +14,15 @@ pub fn prompt(msg: &str) -> String {
 }
 
 pub fn ensure_parent(path: &Path) {
-    let _ = std::fs::create_dir_all(path);
+    let _ = fs::create_dir_all(path);
 }
 
-pub fn list_mtga_files(dir: &Path) -> Vec<std::fs::DirEntry> {
-    let mut entries: Vec<_> = match std::fs::read_dir(dir) {
+pub fn list_mtga_files(dir: &Path) -> Vec<fs::DirEntry> {
+    let mut entries: Vec<_> = match fs::read_dir(dir) {
         Ok(d) => d.filter_map(|e| e.ok()).collect(),
         Err(_) => return Vec::new(),
     };
-    entries.sort_by_key(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
+    entries.sort_by_key(|e| fs::metadata(e.path()).ok().map(|m| m.len()).unwrap_or(0));
     entries.reverse();
     entries
 }
@@ -30,7 +31,7 @@ pub fn open_mtga_db(path: &Path) -> Option<Connection> {
     if path.extension().and_then(|s| s.to_str()) != Some("mtga") {
         return None;
     }
-    if let Ok(meta) = std::fs::metadata(path) {
+    if let Ok(meta) = fs::metadata(path) {
         if meta.len() < 500 * 1024 {
             return None;
         }

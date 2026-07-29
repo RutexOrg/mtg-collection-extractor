@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +17,7 @@ pub fn load_anchors(anchor_path: &Path) -> Option<AnchorList> {
     if !anchor_path.exists() {
         return None;
     }
-    let file = std::fs::File::open(anchor_path).ok()?;
+    let file = fs::File::open(anchor_path).ok()?;
     let saved: Vec<serde_json::Value> = serde_json::from_reader(file).ok()?;
     let anchors: AnchorList = saved
         .into_iter()
@@ -47,7 +49,7 @@ pub fn save_anchors(anchor_path: &Path, anchors: &AnchorList) {
         })
         .collect();
     crate::util::ensure_parent(anchor_path);
-    if let Ok(f) = std::fs::File::create(anchor_path) {
+    if let Ok(f) = fs::File::create(anchor_path) {
         let _ = serde_json::to_writer_pretty(f, &data);
     }
 }
@@ -162,7 +164,7 @@ fn fuzzy_find(query: &str, candidates: &[&String], max_results: usize, cutoff: f
         })
         .collect();
 
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
     scored.truncate(max_results);
     scored.into_iter().map(|(_, s)| s.clone()).collect()
 }

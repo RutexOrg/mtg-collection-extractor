@@ -5,12 +5,16 @@ mod memory;
 mod export;
 mod util;
 
+use std::collections::HashMap;
+
 use indicatif::{ProgressBar, ProgressStyle};
 
 fn main() {
+    let cfg = match config::Config::from_cli() {
+        Some(c) => c,
+        None => return,
+    };
     println!("MTGA Collection Extractor");
-
-    let cfg = config::Config::from_cli();
     println!("Output Folder: {}\n", cfg.output_dir.display());
 
     let mem_source = match memory::MemorySource::from_process() {
@@ -22,7 +26,7 @@ fn main() {
         }
     };
 
-    let db = database::load_card_database(&cfg.data_dir, cfg.mtga_path.as_deref());
+    let db = database::load_card_database(&cfg.data_dir, cfg.mtga_path.as_deref(), mem_source.process_path.as_deref());
     if db.is_empty() {
         println!("Database init failed.");
         wait_exit();
@@ -105,7 +109,7 @@ fn main() {
     block_pb.set_prefix("Blocks:");
     block_pb.set_message("scanning...");
 
-    let mut candidates: Vec<std::collections::HashMap<u32, u32>> = Vec::new();
+    let mut candidates: Vec<HashMap<u32, u32>> = Vec::new();
     for m in &all_matches {
         let blocks = mem_source.find_blocks(*m, cfg.offset_back, cfg.read_size);
         candidates.extend(blocks);

@@ -1,6 +1,12 @@
 use std::collections::HashMap;
+use std::ffi::c_void;
+use std::iter::once;
+use std::mem;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -12,6 +18,7 @@ use windows::Win32::System::Memory::{
     PAGE_NOACCESS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY, PAGE_EXECUTE_READ,
     PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_PROTECTION_FLAGS,
 };
+use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 
 use indicatif::ProgressBar;
@@ -29,7 +36,7 @@ fn find_process_id(name: &str) -> Option<u32> {
             Err(_) => return None,
         };
         let mut entry = PROCESSENTRY32W {
-            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            dwSize: mem::size_of::<PROCESSENTRY32W>() as u32,
             ..Default::default()
         };
 
@@ -38,7 +45,7 @@ fn find_process_id(name: &str) -> Option<u32> {
             return None;
         }
 
-        let target_wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let target_wide: Vec<u16> = name.encode_utf16().chain(once(0)).collect();
 
         loop {
             let exe_matches = entry.szExeFile[..target_wide.len()] == *target_wide.as_slice();
@@ -81,8 +88,8 @@ impl ProcessHandle {
         let result = unsafe {
             ReadProcessMemory(
                 self.handle,
-                address as *const std::ffi::c_void,
-                buf.as_mut_ptr() as *mut std::ffi::c_void,
+                address as *const c_void,
+                buf.as_mut_ptr() as *mut c_void,
                 size,
                 Some(&mut bytes_read),
             )
@@ -94,6 +101,23 @@ impl ProcessHandle {
         }
     }
 
+    pub fn get_process_path(&self) -> Option<PathBuf> {
+        let mut buf = [0u16; 4096];
+        let result = unsafe {
+            GetModuleFileNameExW(
+                self.handle,
+                None,
+                &mut buf,
+            )
+        };
+        if result == 0 {
+            return None;
+        }
+        let len = result as usize;
+        let path_str = String::from_utf16_lossy(&buf[..len]);
+        Some(PathBuf::from(path_str))
+    }
+
     pub fn list_readable_regions(&self) -> Vec<(u64, usize)> {
         let mut infos = Vec::new();
         let mut addr: u64 = 0;
@@ -103,9 +127,9 @@ impl ProcessHandle {
             let result = unsafe {
                 VirtualQueryEx(
                     self.handle,
-                    Some(addr as *const std::ffi::c_void),
+                    Some(addr as *const c_void),
                     &mut mbi,
-                    std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                    mem::size_of::<MEMORY_BASIC_INFORMATION>(),
                 )
             };
             if result == 0 {
@@ -154,6 +178,7 @@ impl Drop for ProcessHandle {
 pub struct MemorySource {
     handle: ProcessHandle,
     pub region_infos: Vec<(u64, usize)>,
+    pub process_path: Option<PathBuf>,
 }
 
 impl MemorySource {
@@ -166,9 +191,14 @@ impl MemorySource {
             region_infos.len(),
             total_size / 1024 / 1024
         );
+        let process_path = handle.get_process_path();
+        if let Some(ref p) = process_path {
+            println!("MTGA.exe path: {}", p.display());
+        }
         Some(MemorySource {
             handle,
             region_infos,
+            process_path,
         })
     }
 
@@ -184,7 +214,7 @@ impl MemorySource {
         let updater_done = done.clone();
         let updater_stop = stop.clone();
         let updater_pb = pb.clone();
-        let handle = std::thread::spawn(move || loop {
+        let handle = thread::spawn(move || loop {
             if updater_stop.load(Ordering::Relaxed) {
                 break;
             }
@@ -193,7 +223,7 @@ impl MemorySource {
             if d >= total {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(50));
         });
 
         use rayon::prelude::*;
@@ -274,7 +304,7 @@ fn parse_blocks(data: &[u8]) -> Vec<HashMap<u32, u32>> {
 
             if misses > 50 {
                 if curr.len() > 50 {
-                    blocks.push(std::mem::take(&mut curr));
+                    blocks.push(mem::take(&mut curr));
                 }
                 curr.clear();
                 misses = 0;

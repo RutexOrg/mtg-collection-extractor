@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use crate::config::Config;
 use crate::database::Lookup;
@@ -68,7 +70,7 @@ pub fn export_txt(path: &Path, entries: &[CollectionEntry]) {
             output.push_str(&format!("{} {} ({})\n", e.count, e.name, e.set));
         }
     }
-    let _ = std::fs::write(path, output);
+    let _ = fs::write(path, output);
 }
 
 pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
@@ -84,7 +86,7 @@ pub fn export_json(path: &Path, entries: &[CollectionEntry]) {
             })
         })
         .collect();
-    if let Ok(f) = std::fs::File::create(path) {
+    if let Ok(f) = fs::File::create(path) {
         let _ = serde_json::to_writer_pretty(f, &data);
     }
 }
@@ -109,7 +111,7 @@ pub fn export_unknown_txt(path: &Path, entries: &[UnknownEntry]) {
         };
         output.push_str(&format!("{} {}\n", e.count, label));
     }
-    let _ = std::fs::write(path, output);
+    let _ = fs::write(path, output);
 }
 
 pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
@@ -127,7 +129,7 @@ pub fn export_unknown_json(path: &Path, entries: &[UnknownEntry]) {
             obj
         })
         .collect();
-    if let Ok(f) = std::fs::File::create(path) {
+    if let Ok(f) = fs::File::create(path) {
         let _ = serde_json::to_writer_pretty(f, &data);
     }
 }
@@ -165,7 +167,7 @@ pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
     println!("\nExport complete!");
     println!("Files saved to: {}", cfg.output_dir.display());
 
-    let _ = std::process::Command::new("explorer")
+    let _ = Command::new("explorer")
         .arg("/select,")
         .arg(&cfg.output_txt)
         .spawn();

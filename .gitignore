@@ -5,3 +5,5 @@ cargo-timing.html
 data
 mise.toml
 .vscode
+tests
+old-data

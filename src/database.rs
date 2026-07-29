@@ -16,6 +16,8 @@ pub struct CardInfo {
     pub set: String,
     #[serde(default)]
     pub collector_number: String,
+    #[serde(default)]
+    pub rarity: u8,
 }
 
 pub type Lookup = HashMap<u32, CardInfo>;
@@ -200,24 +202,24 @@ fn load_local_mtga_database(mtga_path: Option<&Path>, process_path: Option<&Path
         };
         let has_set = cols.contains(&"ExpansionCode".to_string());
         let has_cn = cols.contains(&"CollectorNumber".to_string());
+        let has_rarity = cols.contains(&"Rarity".to_string());
 
-        let query = if has_set && has_cn {
-            "SELECT GrpId, TitleId, ExpansionCode, CollectorNumber FROM Cards"
-        } else if has_set {
-            "SELECT GrpId, TitleId, ExpansionCode, NULL FROM Cards"
-        } else if has_cn {
-            "SELECT GrpId, TitleId, NULL, CollectorNumber FROM Cards"
-        } else {
-            "SELECT GrpId, TitleId, NULL, NULL FROM Cards"
-        };
+        let set_col = if has_set { "ExpansionCode" } else { "NULL" };
+        let cn_col = if has_cn { "CollectorNumber" } else { "NULL" };
+        let rarity_col = if has_rarity { "Rarity" } else { "0" };
+        let query = format!(
+            "SELECT GrpId, TitleId, {}, {}, {} FROM Cards",
+            set_col, cn_col, rarity_col
+        );
 
-        if let Ok(mut stmt) = conn.prepare(query) {
+        if let Ok(mut stmt) = conn.prepare(&query) {
             if let Ok(rows) = stmt.query_map([], |row| {
                 let grp_id: i64 = row.get(0)?;
                 let title_id: i64 = row.get(1)?;
                 let set_code: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
                 let cn: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-                Ok((grp_id, title_id, set_code, cn))
+                let rarity: u8 = row.get::<_, Option<i64>>(4)?.unwrap_or(0) as u8;
+                Ok((grp_id, title_id, set_code, cn, rarity))
             }) {
                 for r in rows.flatten() {
                     let grp_id = r.0 as u32;
@@ -229,6 +231,7 @@ fn load_local_mtga_database(mtga_path: Option<&Path>, process_path: Option<&Path
                                 name: name.clone(),
                                 set: r.2.to_uppercase(),
                                 collector_number: r.3,
+                                rarity: r.4,
                             },
                         );
                     }

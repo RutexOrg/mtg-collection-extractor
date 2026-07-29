@@ -10,6 +10,10 @@ use std::thread;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+const RESET: &str = "\x1b[0m";
+
 fn main() {
     let cfg = match config::Config::from_cli() {
         Some(c) => c,
@@ -49,7 +53,7 @@ fn main() {
 
     let name_to_id = database::build_name_index(&db);
     let display_names = database::build_display_names(&db);
-    let anchors = anchor::interactive_anchors(&name_to_id, &display_names, &cfg.anchor_file);
+    let anchors = anchor::interactive_anchors(&name_to_id, &display_names, &cfg.anchor_file, cfg.yes);
     if anchors.is_empty() {
         return;
     }
@@ -82,10 +86,10 @@ fn main() {
     let mut all_matches = Vec::new();
     for (i, mut matches) in results.into_iter().enumerate() {
         if !matches.is_empty() {
-            println!("  ✓ {}", anchors[i].name);
+            println!("  {GREEN}✓{RESET} {}", anchors[i].name);
             all_matches.append(&mut matches);
         } else {
-            println!("  ✗ {}", anchors[i].name);
+            println!("  {RED}✗{RESET} {}", anchors[i].name);
         }
     }
 

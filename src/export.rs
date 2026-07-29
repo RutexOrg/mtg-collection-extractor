@@ -151,7 +151,9 @@ pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
 pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
     let (entries, unknown) = extract_collection(raw, db);
     let _ = fs::create_dir_all(&cfg.output_dir);
-    println!("\n[Success] Found {} unique entries.", entries.len());
+
+    let total_qty: u32 = raw.values().sum();
+    println!("\n\x1b[1;32m[Success]\x1b[0m {} unique cards, {} total copies.", entries.len(), total_qty);
 
     export_txt(&cfg.output_txt, &entries);
     export_json(&cfg.output_json, &entries);
@@ -167,8 +169,10 @@ pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
     println!("\nExport complete!");
     println!("Files saved to: {}", cfg.output_dir.display());
 
-    let _ = Command::new("explorer")
-        .arg("/select,")
-        .arg(&cfg.output_txt)
-        .spawn();
+    if !cfg.no_open {
+        let _ = Command::new("explorer")
+            .arg("/select,")
+            .arg(&cfg.output_txt)
+            .spawn();
+    }
 }

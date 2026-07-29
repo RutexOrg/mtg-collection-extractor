@@ -22,6 +22,12 @@ pub struct Cli {
 
     #[arg(long, help = "Custom MTGA installation path (e.g. D:/Games/MTGA)")]
     pub mtga_path: Option<PathBuf>,
+
+    #[arg(long = "no-open", alias = "no-explorer", help = "Don't open explorer at the end")]
+    pub no_open: bool,
+
+    #[arg(short = 'y', long = "yes", help = "Auto-confirm prompts")]
+    pub yes: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -44,6 +50,8 @@ pub struct Config {
     pub output_unknown_csv: PathBuf,
     pub threads: usize,
     pub mtga_path: Option<PathBuf>,
+    pub no_open: bool,
+    pub yes: bool,
 }
 
 impl Config {
@@ -89,6 +97,8 @@ impl Config {
             output_unknown_json: output_dir.join("mtga_collection_unknown.json"),
             output_unknown_csv: output_dir.join("mtga_collection_unknown.csv"),
             mtga_path: cli.mtga_path,
+            no_open: cli.no_open,
+            yes: cli.yes,
         })
     }
 }

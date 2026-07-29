@@ -54,11 +54,14 @@ pub fn save_anchors(anchor_path: &Path, anchors: &AnchorList) {
     }
 }
 
-pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, display_names: &HashMap<String, String>, anchor_path: &Path) -> AnchorList {
+pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, display_names: &HashMap<String, String>, anchor_path: &Path, yes: bool) -> AnchorList {
     if let Some(saved) = load_anchors(anchor_path) {
         println!("\n[Previous Anchors Found]");
         for (i, a) in saved.iter().enumerate() {
             println!("  {}. {} (x{})", i + 1, a.name, a.quantity);
+        }
+        if yes {
+            return saved;
         }
         let response = crate::util::prompt("  Use these? [Y/n]: ");
         let response = response.to_lowercase();

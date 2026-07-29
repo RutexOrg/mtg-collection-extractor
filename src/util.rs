@@ -14,7 +14,9 @@ pub fn prompt(msg: &str) -> String {
 }
 
 pub fn ensure_parent(path: &Path) {
-    let _ = fs::create_dir_all(path);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
 }
 
 pub fn list_mtga_files(dir: &Path) -> Vec<fs::DirEntry> {

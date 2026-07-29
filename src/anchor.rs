@@ -54,7 +54,7 @@ pub fn save_anchors(anchor_path: &Path, anchors: &AnchorList) {
     }
 }
 
-pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path) -> AnchorList {
+pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, display_names: &HashMap<String, String>, anchor_path: &Path) -> AnchorList {
     if let Some(saved) = load_anchors(anchor_path) {
         println!("\n[Previous Anchors Found]");
         for (i, a) in saved.iter().enumerate() {
@@ -115,7 +115,10 @@ pub fn interactive_anchors(name_to_id: &HashMap<String, u32>, anchor_path: &Path
                 };
 
                 match name_to_id.get(&chosen.to_lowercase()).copied() {
-                    Some(id) => (id, chosen),
+                    Some(id) => {
+                        let proper = display_names.get(&chosen.to_lowercase()).cloned().unwrap_or(chosen);
+                        (id, proper)
+                    }
                     None => continue,
                 }
             }

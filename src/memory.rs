@@ -23,7 +23,7 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, 
 
 use indicatif::ProgressBar;
 
-const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB per read
+const CHUNK_SIZE: usize = 16 * 1024 * 1024; // 16 MB per read
 
 pub struct ProcessHandle {
     handle: HANDLE,
@@ -202,25 +202,38 @@ impl MemorySource {
         })
     }
 
-    pub fn pattern_scan(&self, pattern: &[u8], pb: &ProgressBar) -> Vec<u64> {
-        if pattern.is_empty() {
+    pub fn multi_pattern_scan(&self, patterns: &[Vec<u8>], pb: &ProgressBar) -> Vec<Vec<u64>> {
+        if patterns.is_empty() {
             return Vec::new();
+        }
+        if patterns.iter().any(|p| p.is_empty()) {
+            return vec![Vec::new(); patterns.len()];
         }
 
         let total = self.region_infos.len();
         let done = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
 
+        let mut found = Vec::with_capacity(patterns.len());
+        for _ in 0..patterns.len() {
+            found.push(AtomicBool::new(false));
+        }
+        let found = Arc::new(found);
+
+        let pattern_u64s: Vec<u64> = patterns
+            .iter()
+            .map(|p| u64::from_le_bytes(p[..8].try_into().unwrap()))
+            .collect();
+
         let updater_done = done.clone();
         let updater_stop = stop.clone();
         let updater_pb = pb.clone();
-        let handle = thread::spawn(move || loop {
+        let updater = thread::spawn(move || loop {
             if updater_stop.load(Ordering::Relaxed) {
                 break;
             }
-            let d = updater_done.load(Ordering::Relaxed);
-            updater_pb.set_position(d as u64);
-            if d >= total {
+            updater_pb.set_position(updater_done.load(Ordering::Relaxed) as u64);
+            if updater_done.load(Ordering::Relaxed) >= total {
                 break;
             }
             thread::sleep(Duration::from_millis(50));
@@ -228,38 +241,52 @@ impl MemorySource {
 
         use rayon::prelude::*;
 
-        let pattern_vec = pattern.to_vec();
-        let results: Vec<Vec<u64>> = self
+        let results: Vec<Vec<Vec<u64>>> = self
             .region_infos
             .par_iter()
             .map(|&(base, size)| {
-                let mut addrs = Vec::new();
+                let mut local: Vec<Vec<u64>> = vec![Vec::new(); patterns.len()];
                 let mut offset = 0usize;
                 while offset < size {
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
                     let read_size = CHUNK_SIZE.min(size - offset);
                     if let Some(data) = self.handle.read_bytes(base + offset as u64, read_size) {
-                        if data.len() >= pattern_vec.len() {
-                            let mut pos = 0;
-                            while pos + pattern_vec.len() <= data.len() {
-                                if data[pos..pos + pattern_vec.len()] == pattern_vec {
-                                    addrs.push(base + offset as u64 + pos as u64);
+                        let data = &data[..data.len() & !7];
+                        let ints: &[u64] = bytemuck::cast_slice(data);
+                        for (i, &val) in ints.iter().enumerate() {
+                            for (pi, &pval) in pattern_u64s.iter().enumerate() {
+                                if val == pval && local[pi].is_empty() {
+                                    local[pi].push(base + offset as u64 + (i as u64) * 8);
+                                    found[pi].store(true, Ordering::Relaxed);
                                 }
-                                pos += 1;
                             }
                         }
                     }
                     offset += CHUNK_SIZE;
                 }
+
+                if found.iter().all(|f| f.load(Ordering::Relaxed)) {
+                    stop.store(true, Ordering::Relaxed);
+                }
+
                 done.fetch_add(1, Ordering::Relaxed);
-                addrs
+                local
             })
             .collect();
 
         stop.store(true, Ordering::Relaxed);
-        let _ = handle.join();
+        let _ = updater.join();
         pb.set_position(total as u64);
 
-        results.into_iter().flatten().collect()
+        let mut merged: Vec<Vec<u64>> = vec![Vec::new(); patterns.len()];
+        for region_res in results {
+            for (pi, addrs) in region_res.into_iter().enumerate() {
+                merged[pi].extend(addrs);
+            }
+        }
+        merged
     }
 
     pub fn find_blocks(

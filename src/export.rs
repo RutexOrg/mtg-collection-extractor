@@ -150,7 +150,7 @@ pub fn export_unknown_csv(path: &Path, entries: &[UnknownEntry]) {
 
 pub fn do_export(cfg: &Config, raw: &HashMap<u32, u32>, db: &Lookup) {
     let (entries, unknown) = extract_collection(raw, db);
-    crate::util::ensure_parent(&cfg.output_dir);
+    let _ = fs::create_dir_all(&cfg.output_dir);
     println!("\n[Success] Found {} unique entries.", entries.len());
 
     export_txt(&cfg.output_txt, &entries);

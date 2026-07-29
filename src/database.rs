@@ -307,3 +307,11 @@ pub fn build_name_index(db: &Lookup) -> HashMap<String, u32> {
     }
     map
 }
+
+pub fn build_display_names(db: &Lookup) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for info in db.values() {
+        map.insert(info.name.to_lowercase(), info.name.clone());
+    }
+    map
+}

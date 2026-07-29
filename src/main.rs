@@ -6,6 +6,7 @@ mod export;
 mod util;
 
 use std::collections::HashMap;
+use std::thread;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -33,22 +34,27 @@ fn main() {
         return;
     }
 
-    if cfg.threads > 0 {
+    {
+        let n = if cfg.threads > 0 {
+            cfg.threads
+        } else {
+            let cores = thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+            if cores <= 2 { 1 } else { cores - 2 }
+        };
         rayon::ThreadPoolBuilder::new()
-            .num_threads(cfg.threads)
+            .num_threads(n)
             .build_global()
             .ok();
     }
 
     let name_to_id = database::build_name_index(&db);
-    let anchors = anchor::interactive_anchors(&name_to_id, &cfg.anchor_file);
+    let display_names = database::build_display_names(&db);
+    let anchors = anchor::interactive_anchors(&name_to_id, &display_names, &cfg.anchor_file);
     if anchors.is_empty() {
         return;
     }
 
-    // Pattern scan for each anchor
     println!("\nScanning memory for collection data...");
-    let total_anchors = anchors.len();
     let total_regions = mem_source.region_infos.len();
 
     let pb = ProgressBar::new(total_regions as u64);
@@ -60,37 +66,28 @@ fn main() {
     );
     pb.set_prefix("Scan:");
 
+    let patterns: Vec<Vec<u8>> = anchors
+        .iter()
+        .map(|a| make_pattern(a.arena_id, a.quantity))
+        .collect();
+
+    pb.reset_elapsed();
+    pb.set_length(total_regions as u64);
+    pb.set_position(0);
+    pb.set_message("Scanning...");
+
+    let results = mem_source.multi_pattern_scan(&patterns, &pb);
+    pb.finish_with_message("Done");
+
     let mut all_matches = Vec::new();
-    for (i, anchor) in anchors.iter().enumerate() {
-        let display = if anchor.name.len() > 24 {
-            format!("{}..", &anchor.name[..24])
-        } else {
-            anchor.name.clone()
-        };
-
-        pb.reset_elapsed();
-        pb.set_length(total_regions as u64);
-        pb.set_position(0);
-        pb.set_message(format!("{}/{} {}", i + 1, total_anchors, display));
-
-        let pattern = make_pattern(anchor.arena_id, anchor.quantity);
-        let matches = mem_source.pattern_scan(&pattern, &pb);
-
-        pb.set_length(total_anchors as u64);
-        pb.set_position(i as u64 + 1);
-
+    for (i, mut matches) in results.into_iter().enumerate() {
         if !matches.is_empty() {
-            all_matches.extend(matches);
-            pb.println(format!("  ✓ {}", display));
-            if anchor.quantity > 1 {
-                pb.set_message("Done");
-                break;
-            }
+            println!("  ✓ {}", anchors[i].name);
+            all_matches.append(&mut matches);
         } else {
-            pb.println(format!("  ✗ {}", display));
+            println!("  ✗ {}", anchors[i].name);
         }
     }
-    pb.finish_with_message("Done");
 
     if all_matches.is_empty() {
         println!("\nScanner failed to locate collection from anchors.");
@@ -125,7 +122,7 @@ fn main() {
 
     let collection = candidates
         .into_iter()
-        .max_by_key(|b| b.len())
+        .max_by_key(|b| b.keys().filter(|k| db.contains_key(k)).count())
         .unwrap_or_default();
 
     export::do_export(&cfg, &collection, &db);
